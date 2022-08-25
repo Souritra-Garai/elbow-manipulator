@@ -1,6 +1,10 @@
 import numpy as np
 
+from scipy.integrate import solve_ivp
+
 g = 9.8	# m2 / s
+
+__time_step = 1E-4	# s
 
 class ElbowManipulatorConfig :
 
@@ -47,19 +51,21 @@ class ElbowManipulatorConfig :
 class ElbowManipulator(ElbowManipulatorConfig) :
 
 	def __init__(self) -> None:
+
+		self._t			= 0.0			# s
 		
 		self._q 		= np.zeros(2)	# radians
 		self._q_dot		= np.zeros(2)	# rad / s
 		self._q_ddot	= np.zeros(2)	# rad / s2
+
+		self._J			= self.getJacobian()
 
 		self._F			= np.zeros(2)	# N
 		self._tau		= np.zeros(2)	# N m
 		
 		pass
 
-	def getJ1(self) -> np.ndarray :
-
-		return np.zeros(2)
+	# Utility vector and matrices
 
 	def getLinkEnd(self, index = 0) -> np.ndarray :
 
@@ -67,6 +73,57 @@ class ElbowManipulator(ElbowManipulatorConfig) :
 			np.cos(self._q[index]),
 			np.sin(self._q[index])
 		])
+
+	def getJacobian(self) -> np.ndarray :
+
+		return np.array([
+			[-	self._l[0] * np.sin(self._q[0]), -	self._l[1] * np.sin(self._q[1])],
+			[	self._l[0] * np.cos(self._q[0]),	self._l[1] * np.cos(self._q[1])]
+		])
+
+	def getConfigAcc(self) -> np.ndarray :
+		
+		return np.array([
+			np.sum(self._l * np.cos(self._q) * (self._q_dot ** 2)),
+			np.sum(self._l * np.sin(self._q) * (self._q_dot ** 2))
+		])
+
+	def getAccMatrix(self) -> np.ndarray :
+
+		config_term = self._m[1] * self._l[0] * self._l[1] * np.cos(self._q[0] - self._q[1]) / 2
+
+		return np.array([
+			[	((self._m[0] / 3) + self._m[1]) * (self._l[0]**2),	config_term],
+			[	  self._m[1] * (self._l[1]**2) / 3,					config_term]
+		])
+
+	def getConfigForce(self) -> np.ndarray :
+
+		config_term = self._m[1] * self._l[0] * self._l[1] * np.sin(self._q[0] - self._q[1]) / 2
+
+		gravity_term = self._m * g * self._l * np.cos(self._q) / 2 + np.array([
+			self._m[1] * g * self._l[0] * np.cos(self._q[0])
+		])
+
+		return config_term * (self._q_dot**2) * np.array([1, -1]) + gravity_term
+
+	def __getDerivative(self, t:float, Q:np.ndarray, tau:np.ndarray, F:callable) :
+
+		self._t			= t
+		self._q[:]		= Q[0:2]
+		self._q_dot[:]	= Q[2:4]
+		self._q_ddot[:]	= self.getQDDot(tau, F)
+
+		return np.append(
+			self._q_dot,
+			self._q_ddot
+		)
+
+	# Forward Kinematics
+
+	def getJ1(self) -> np.ndarray :
+
+		return np.zeros(2)
 
 	def getJ2(self) -> np.ndarray :
 
@@ -76,16 +133,83 @@ class ElbowManipulator(ElbowManipulatorConfig) :
 
 		return self.getJ2() + self.getLinkEnd(1)
 
-	def getJacobian(self) -> np.ndarray :
+	def getEVel(self) -> np.ndarray :
+
+		return np.matmul(self._J, self._q_dot)
+	
+	def getEAcc(self) -> np.ndarray :
+
+		return np.matmul(self._J, self._q_ddot) - self.getConfigAcc()
+
+	# Inverse Kinematics
+
+	def getQ(self, pos_E:np.ndarray=np.zeros(2)) -> np.ndarray :
+
+		theta	= np.arccos(np.sum(pos_E**2 - self._l**2) / (2 * self._l[0] * self._l[1]))
+		theta	*= 1 - 2 * np.signbit(pos_E[0])
+
+		phi		= np.arctan2(pos_E[1], pos_E[0])
+		varphi	= np.arctan2(
+			self._l[1] * np.sin(theta),
+			self._l[0] + self._l[1] * np.cos(theta)
+		)
 
 		return np.array([
-			[-	self._l[0] * np.sin(self._q[0]), -	self._l[1] * np.sin(self._q[1])],
-			[	self._l[0] * np.cos(self._q[0]),	self._l[1] * np.cos(self._q[1])]
+			phi + varphi,
+			phi + varphi - theta
 		])
 
+	def getQDot(self, vel_E:np.ndarray=np.zeros(2)) -> np.ndarray :
+
+		return np.matmul(__inv(self._J), vel_E)
+
+	def getQDDot(self, acc_E:np.ndarray=np.zeros(2)) -> np.ndarray :
+
+		return np.matmul(
+			__inv(self._J),
+			acc_E + self.getConfigAcc()
+		)
+
+	# Dynamics
+
+	def getQDDot(self, tau:np.ndarray, F:callable) -> np.ndarray :
+
+		return np.matmul(
+			__inv(self.getAccMatrix()),
+			tau + np.matmul(
+				- np.transpose(self._J),
+				F(self._t, self._q, self._q_dot, self._q_ddot)
+			)
+		)
+
+	def getDerivativeLagrangian(self) -> np.ndarray :
+
+		return np.matmul(self.getAccMatrix(), self._q_ddot) + self.getConfigForce()
+
+	def advanceTimeStep(self, time_step, tau:np.ndarray, F:callable) -> None :
+
+		solve_ivp(
+			self.__getDerivative,
+			(self._t, self._t + time_step),
+			np.append(self._q, self._q_dot),
+			args=(tau, F),
+			max_step = __time_step
+		)
+
+		pass
 
 def __det(mat:np.ndarray) -> float :
 
 	return mat[0, 0] * mat[1, 1] - mat[0, 1] * mat[1, 0]
 
+def __inv(mat:np.ndarray) -> np.ndarray:
 
+	return np.array([
+		[ mat[1,1],	-mat[0,1]],
+		[-mat[1,0],	 mat[0,0]]
+	]) / __det(mat)
+
+
+if __name__ == '__main__' :
+
+	pass
