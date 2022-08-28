@@ -147,6 +147,16 @@ class ElbowManipulatorState(np.ndarray) :
 			[	config_term,											system.m(2) * (system.l(2)**2) / 3.0]
 		])
 
+	def getConfigTerms(self, system:ElbowManipulatorConfig) -> np.ndarray :
+
+		config_term = system.m(2) * system.l(1) * 0.5 * system.l(2) * np.sin(self.q(1) - self.q(2))
+		config_term = config_term * np.array([
+			- self.q_dot(2)**2,
+			  self.q_dot(1)**2
+		])
+
+		return config_term
+
 	def getGravityTerms(self, system:ElbowManipulatorConfig) -> np.ndarray :
 
 		return system.m_vec() * g * 0.5 * system.l_vec() * np.cos(self.q_vec()) + np.array([
@@ -158,15 +168,9 @@ class ElbowManipulatorState(np.ndarray) :
 
 	def q_ddot(self, system:ElbowManipulatorConfig, tau:np.ndarray, F:np.ndarray) -> np.ndarray :
 
-		config_term = system.m(2) * system.l(1) * 0.5 * system.l(2) * np.sin(self.q(1) - self.q(2))
-		config_term = config_term * np.array([
-			- self.q_dot(2)**2,
-			  self.q_dot(1)**2
-		])
-
 		return np.matmul(
 			_inv(self.getAccMatrix(system)),
-			tau - np.matmul(self.J(system).T, F) - config_term - self.getGravityTerms(system)
+			tau - np.matmul(self.J(system).T, F) - self.getConfigTerms(system) - self.getGravityTerms(system)
 		)
 
 class ElbowManipulator() :
@@ -320,7 +324,7 @@ if __name__ == '__main__' :
 
 		bot.advanceTime(interval / 1000)
 
-		return bot.updatePlot()
+		return bot.updatePlot(),
 
 	my_anim = FuncAnimation(fig, update, np.arange(start=0, stop=100, step=1), blit=True, interval = interval)
 

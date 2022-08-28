@@ -1,3 +1,4 @@
+from cmath import tau
 from operator import index
 from textwrap import indent
 import numpy as np
@@ -16,6 +17,20 @@ class ManipulatorController() :
 		self.time_step = 1 / frequency
 
 		pass
+
+	def angleControl(self, t:float, target_state:np.ndarray) -> np.ndarray :
+
+		return target_state
+
+	def torqueControl(self, t:float, target_state:np.ndarray, F:callable) -> np.ndarray :
+
+		tau  = self.state.getConfigTerms(self.system)
+		tau += self.state.getGravityTerms(self.system) 
+		tau += np.matmul(self.state.J(self.system), F(t, target_state))
+		
+		tau += np.matmul(self.state.getAccMatrix(self.system), (target_state[2:] - self.state.q_dot_vec()) / self.time_step)
+
+		return tau
 
 	# Inverse Kinematics
 
@@ -133,13 +148,15 @@ if __name__ == '__main__' :
 	bot = ElbowManipulator.ElbowManipulator()
 	controller = ManipulatorController(1000)
 
-	t = np.linspace(0, 10, 50)
-	x = 0.5 * np.cos(1 * t * np.pi)
-	y = 0.5 + 0.5 * np.sin(1 * t  * np.pi)
+	t = np.linspace(0, 10, 100)
+	x = 0.5 * np.cos(2 * t * np.pi)
+	y = 1 + 0.5 * np.sin(2 * t  * np.pi)
 
 	trajectory = Trajectory(t, x, y)
 	
 	trajectory.generateTargetStates(controller)
+
+	bot.setState(0, trajectory.getTargetState(0))
 	
 	import matplotlib.pyplot as plt
 	from matplotlib.animation import FuncAnimation
@@ -156,13 +173,20 @@ if __name__ == '__main__' :
 
 	ax.set_axis_off()
 
-	interval = 100 // 144
+	interval = 1 / 144
 
-	def update(i) :
+	F = lambda t, state : np.zeros(2)
 
-		t = i * controller.time_step
+	def update(time) :
 
-		bot.setState(t, trajectory.getTargetState(t))
+		for t in np.arange(time - interval, time, controller.time_step) :
+
+			controller.state.setQ(bot.getQ())
+			controller.state.setQdot(bot.getQdot())
+
+			bot.setTau(controller.torqueControl(t, trajectory.getTargetState(t), F))
+
+			bot.advanceTime(controller.time_step)
 
 		x, y = trajectory.getTargetPosition(t)
 		
@@ -170,7 +194,7 @@ if __name__ == '__main__' :
 
 		return bot.updatePlot(), target
 
-	my_anim = FuncAnimation(fig, update, np.arange(start=0, stop=trajectory.n(), step=1), blit=True, interval = interval)
+	my_anim = FuncAnimation(fig, update, np.arange(0, 10, interval), blit=True, interval = interval * 1000)
 
 	# plt.show()
 
