@@ -1,24 +1,27 @@
 import numpy as np
 
 from scipy.integrate import solve_ivp
+from matplotlib.pyplot import Axes, Line2D
 
 g = 9.8	# m2 / s
-
-__time_step = 1E-4	# s
 
 class ElbowManipulatorConfig :
 
 	def __init__(self) -> None:
-		
+
 		self._l	= np.ones(2)	# m
 		self._m	= np.ones(2)	# kg
 		
 		# Absolute angle limits [min, max]
 		# on joint angles [q1, q2]
-		self._q_lim	= np.zeros((2, 2))	# radians
-		self._q_lim[:, 1] = np.pi
+		self._q_lim	= np.pi * np.array([
+			[ 0,	1  ],
+			[-0.5,	1.5]
+		])
 		
 		pass
+
+	# Get / Set properties
 
 	def setLinkProperties(self, link_num:int, mass:float, length:float) -> None :
 
@@ -48,168 +51,281 @@ class ElbowManipulatorConfig :
 
 		pass
 
-class ElbowManipulator(ElbowManipulatorConfig) :
+	def m(self, i:int) -> float :
 
-	def __init__(self) -> None:
+		return self._m[i-1]
 
-		self._t			= 0.0			# s
+	def l(self, i:int) -> float :
+
+		return self._l[i-1]
+
+	def m_vec(self) -> np.ndarray :
+
+		return np.array(self._m)
+
+	def l_vec(self) -> np.ndarray :
+
+		return np.array(self._l)
+
+	# System checks
+
+	def withinSystemBounds(self, q_vec:np.ndarray) -> bool :
+
+		return all(np.bitwise_and(self._q_lim[:, 0] <= q_vec, q_vec <= self._q_lim[:, 1])) and (sum(self.l_vec() * np.sin(q_vec)) >= 0)
+
+class ElbowManipulatorState(np.ndarray) :
+
+	def __new__(subtype) -> None:
 		
-		self._q 		= np.zeros(2)	# radians
-		self._q_dot		= np.zeros(2)	# rad / s
-		self._q_ddot	= np.zeros(2)	# rad / s2
+		obj = super().__new__(subtype, shape=(4), dtype=float)
 
-		self._J			= self.getJacobian()
+		obj.setState(np.zeros(4))
 
-		self._F			= np.zeros(2)	# N
-		self._tau		= np.zeros(2)	# N m
+		return obj
+
+	def __array_finalize__(self, obj) -> None:
+
+		if obj is None : return
 		
+		elif self.shape[-1] != 4 : raise TypeError('Array size should be 4')
+
 		pass
 
-	# Utility vector and matrices
+	# Get / Set attributes
 
-	def getLinkEnd(self, index = 0) -> np.ndarray :
+	def q(self, i:int) -> float :
 
-		return self._l[index] * np.array([
-			np.cos(self._q[index]),
-			np.sin(self._q[index])
-		])
+		return self[i-1]
 
-	def getJacobian(self) -> np.ndarray :
+	def q_dot(self, i:int) -> float :
 
-		return np.array([
-			[-	self._l[0] * np.sin(self._q[0]), -	self._l[1] * np.sin(self._q[1])],
-			[	self._l[0] * np.cos(self._q[0]),	self._l[1] * np.cos(self._q[1])]
-		])
+		return self[i+1]
 
-	def getConfigAcc(self) -> np.ndarray :
-		
-		return np.array([
-			np.sum(self._l * np.cos(self._q) * (self._q_dot ** 2)),
-			np.sum(self._l * np.sin(self._q) * (self._q_dot ** 2))
-		])
+	def q_vec(self) -> np.ndarray :
 
-	def getAccMatrix(self) -> np.ndarray :
+		return np.array([self[0], self[1]])
 
-		config_term = self._m[1] * self._l[0] * self._l[1] * np.cos(self._q[0] - self._q[1]) / 2
+	def q_dot_vec(self) -> np.ndarray :
 
-		return np.array([
-			[	((self._m[0] / 3) + self._m[1]) * (self._l[0]**2),	config_term],
-			[	  self._m[1] * (self._l[1]**2) / 3,					config_term]
-		])
+		return np.array([self[2], self[3]])
 
-	def getConfigForce(self) -> np.ndarray :
+	def setQ(self, q:np.ndarray) -> None :
 
-		config_term = self._m[1] * self._l[0] * self._l[1] * np.sin(self._q[0] - self._q[1]) / 2
+		self[0] = q[0]
+		self[1] = q[1]
 
-		gravity_term = self._m * g * self._l * np.cos(self._q) / 2 + np.array([
-			self._m[1] * g * self._l[0] * np.cos(self._q[0])
-		])
+		pass
 
-		return config_term * (self._q_dot**2) * np.array([1, -1]) + gravity_term
+	def setQdot(self, q_dot:np.ndarray) -> None :
 
-	def __getDerivative(self, t:float, Q:np.ndarray, tau:np.ndarray, F:callable) :
+		self[2] = q_dot[0]
+		self[3] = q_dot[1]
 
-		self._t			= t
-		self._q[:]		= Q[0:2]
-		self._q_dot[:]	= Q[2:4]
-		self._q_ddot[:]	= self.getQDDot(tau, F)
+		pass
 
-		return np.append(
-			self._q_dot,
-			self._q_ddot
-		)
+	def setState(self, Q:np.ndarray) -> None :
 
-	# Forward Kinematics
+		self[:] = Q[0:4]
 
-	def getJ1(self) -> np.ndarray :
+		pass
 
-		return np.zeros(2)
+	# Utility matrices and vectors
 
-	def getJ2(self) -> np.ndarray :
-
-		return self.getLinkEnd(0)
-
-	def getE(self) -> np.ndarray :
-
-		return self.getJ2() + self.getLinkEnd(1)
-
-	def getEVel(self) -> np.ndarray :
-
-		return np.matmul(self._J, self._q_dot)
-	
-	def getEAcc(self) -> np.ndarray :
-
-		return np.matmul(self._J, self._q_ddot) - self.getConfigAcc()
-
-	# Inverse Kinematics
-
-	def getQ(self, pos_E:np.ndarray=np.zeros(2)) -> np.ndarray :
-
-		theta	= np.arccos(np.sum(pos_E**2 - self._l**2) / (2 * self._l[0] * self._l[1]))
-		theta	*= 1 - 2 * np.signbit(pos_E[0])
-
-		phi		= np.arctan2(pos_E[1], pos_E[0])
-		varphi	= np.arctan2(
-			self._l[1] * np.sin(theta),
-			self._l[0] + self._l[1] * np.cos(theta)
-		)
+	def J(self, system:ElbowManipulatorConfig) -> np.ndarray :
 
 		return np.array([
-			phi + varphi,
-			phi + varphi - theta
+			[	- system.l(1) * np.sin(self.q(1)),	- system.l(2) * np.sin(self.q(2))],
+			[	  system.l(1) * np.cos(self.q(1)),	  system.l(2) * np.cos(self.q(2))]
 		])
 
-	def getQDot(self, vel_E:np.ndarray=np.zeros(2)) -> np.ndarray :
+	def getAccMatrix(self, system:ElbowManipulatorConfig) -> np.ndarray :
 
-		return np.matmul(__inv(self._J), vel_E)
+		config_term = system.m(2) * system.l(1) * 0.5 * system.l(2) * np.cos(self.q(1) - self.q(2))
 
-	def getQDDot(self, acc_E:np.ndarray=np.zeros(2)) -> np.ndarray :
+		return np.array([
+			[	(system.m(1) / 3.0 + system.m(2)) * (system.l(1)**2),	config_term],
+			[	config_term,											system.m(2) * (system.l(2)**2) / 3.0]
+		])
 
-		return np.matmul(
-			__inv(self._J),
-			acc_E + self.getConfigAcc()
-		)
+	def getGravityTerms(self, system:ElbowManipulatorConfig) -> np.ndarray :
+
+		return system.m_vec() * g * 0.5 * system.l_vec() * np.cos(self.q_vec()) + np.array([
+			system.m(2) * g * system.l(1) * np.cos(self.q(1)),
+			0
+		])
 
 	# Dynamics
 
-	def getQDDot(self, tau:np.ndarray, F:callable) -> np.ndarray :
+	def q_ddot(self, system:ElbowManipulatorConfig, tau:np.ndarray, F:np.ndarray) -> np.ndarray :
+
+		config_term = system.m(2) * system.l(1) * 0.5 * system.l(2) * np.sin(self.q(1) - self.q(2))
+		config_term = config_term * np.array([
+			- self.q_dot(2)**2,
+			  self.q_dot(1)**2
+		])
 
 		return np.matmul(
-			__inv(self.getAccMatrix()),
-			tau + np.matmul(
-				- np.transpose(self._J),
-				F(self._t, self._q, self._q_dot, self._q_ddot)
-			)
+			_inv(self.getAccMatrix(system)),
+			tau - np.matmul(self.J(system).T, F) - config_term - self.getGravityTerms(system)
 		)
 
-	def getDerivativeLagrangian(self) -> np.ndarray :
+class ElbowManipulator() :
 
-		return np.matmul(self.getAccMatrix(), self._q_ddot) + self.getConfigForce()
+	def __init__(self) -> None:
+		
+		self.__system	= ElbowManipulatorConfig()
+		self.__state	= ElbowManipulatorState()
 
-	def advanceTimeStep(self, time_step, tau:np.ndarray, F:callable) -> None :
+		self.__tau		= np.zeros(2)
+		self.__F		= lambda t, state : np.zeros(2)
+		self.__t		= 0.0
+		
+		pass
 
-		solve_ivp(
-			self.__getDerivative,
-			(self._t, self._t + time_step),
-			np.append(self._q, self._q_dot),
-			args=(tau, F),
-			max_step = __time_step
+	# Dynamics
+
+	def __getDerivative(self, t:float, y:np.ndarray) -> np.ndarray :
+
+		state = ElbowManipulatorState()
+		state.setState(y)
+
+		return np.append(
+			state.q_dot_vec(),
+			state.q_ddot(self.__system, self.__tau, self.__F(t, state))
 		)
+	
+	def advanceTime(self, time_step:float) -> None :
+
+		solution = solve_ivp(self.__getDerivative, (self.__t, self.__t + time_step), self.__state)
+
+		if solution.success :
+
+			self.setState(solution.t[-1], solution.y[:, -1])
+
+		else : 
+
+			raise RuntimeError('Numerical solution to governing differential equations did not converge')	
+		
+		pass
+
+	# Get / Set properties
+
+	def getQ(self) -> np.ndarray :
+
+		return self.__state.q_vec()
+
+	def getQdot(self) -> np.ndarray :
+
+		return self.__state.q_dot_vec()
+	
+	def getTime(self) -> float :
+
+		return self.__t
+	
+	def setF(self, F:callable) -> None :
+
+		if F(self.__t, self.__state).shape[-1] == 2 :
+
+			self.__F = F
+
+		else :
+
+			raise ValueError('Method F(t, state) should take two arguments and output [...,2] numpy.ndarray')
+
+	def setTau(self, tau:np.ndarray) -> None :
+
+		self.__tau[:] = tau
+
+	def setState(self, t, state:np.ndarray) -> None :
+
+		if self.__system.withinSystemBounds(state[:2]) :
+
+			self.__t = t
+			self.__state.setState(state)
+
+		else :
+
+			raise ValueError('State out of system bounds')
 
 		pass
 
-def __det(mat:np.ndarray) -> float :
+	def setSystem(self, system:ElbowManipulatorConfig) -> None :
+
+		self.__system = system
+		pass
+
+	# Plot
+
+	def setUpPlot(self, axes:Axes) -> tuple :
+
+		self.__plot_obj, = axes.plot([], [], 'o-', lw=5)
+
+		l = sum(self.__system.l_vec())
+		axes.set_xlim([-1.5  * l, 1.5 * l])
+		axes.set_ylim([-0.25 * l, 1.5 * l])
+
+		return self.__plot_obj
+
+	def updatePlot(self) -> tuple :
+
+		x = np.zeros(3)
+		y = np.zeros(3)
+
+		x[1:] = self.__system.l_vec() * np.cos(self.__state.q_vec())
+		y[1:] = self.__system.l_vec() * np.sin(self.__state.q_vec())
+
+		x[2] += x[1]
+		y[2] += y[1]
+
+		self.__plot_obj.set_data(x, y)
+
+		return self.__plot_obj
+
+def _det(mat:np.ndarray) -> float :
+
+	assert(mat.shape == (2,2))
 
 	return mat[0, 0] * mat[1, 1] - mat[0, 1] * mat[1, 0]
 
-def __inv(mat:np.ndarray) -> np.ndarray:
+def _inv(mat:np.ndarray) -> np.ndarray :
 
 	return np.array([
 		[ mat[1,1],	-mat[0,1]],
 		[-mat[1,0],	 mat[0,0]]
-	]) / __det(mat)
-
+	]) / _det(mat)
 
 if __name__ == '__main__' :
+
+	bot = ElbowManipulator()
+	bot.setState(0, np.array([np.pi/3, np.pi / 3, 0, 0]))
+	bot.setTau([1.5 * g * np.cos(np.pi/3), 0.5 * g * np.cos(np.pi/4)])
+
+	import matplotlib.pyplot as plt
+	from matplotlib.animation import FuncAnimation
+
+	fig = plt.figure()
+
+	ax = fig.add_subplot(1, 1, 1)
+
+	bot.setUpPlot(ax)
+
+	ax.set_axis_off()
+
+	# title = ax.text(0.5,0.85, "", bbox={'facecolor':'w', 'alpha':0.5, 'pad':5},
+	#             transform=ax.transAxes, ha="center", s=0)
+
+	interval = 1000 // 144
+
+	def update(i) :
+
+		bot.advanceTime(interval / 1000)
+
+		return bot.updatePlot()
+
+	my_anim = FuncAnimation(fig, update, np.arange(start=0, stop=100, step=1), blit=True, interval = interval)
+
+	# plt.show()
+
+	plt.show()
 
 	pass
