@@ -71,7 +71,10 @@ class ElbowManipulatorConfig :
 
 	def withinSystemBounds(self, q_vec:np.ndarray) -> bool :
 
-		return all(np.bitwise_and(self._q_lim[:, 0] <= q_vec, q_vec <= self._q_lim[:, 1])) and (sum(self.l_vec() * np.sin(q_vec)) >= 0)
+		ret_val  = np.all(np.bitwise_and(self._q_lim[:, 0] <= q_vec, q_vec <= self._q_lim[:, 1]))
+		ret_val *= np.all(sum(self.l_vec() * np.sin(q_vec)) >= 0)
+
+		return ret_val
 
 class ElbowManipulatorState(np.ndarray) :
 
@@ -212,7 +215,7 @@ class ElbowManipulator() :
 		
 		pass
 
-	# Get / Set properties
+	# Get / Set attributes
 
 	def getQ(self) -> np.ndarray :
 
@@ -226,6 +229,10 @@ class ElbowManipulator() :
 
 		return self.__t
 	
+	def getState(self) -> ElbowManipulatorState :
+
+		return np.copy(self.__state)
+
 	def setF(self, F:callable) -> None :
 
 		if F(self.__t, self.__state).shape[-1] == 2 :
@@ -253,9 +260,16 @@ class ElbowManipulator() :
 
 		pass
 
-	def setSystem(self, system:ElbowManipulatorConfig) -> None :
+	def setLinkProperties(self, link_num:int, mass:float, length:float) -> None :
 
-		self.__system = system
+		if self.__t == 0 : self.__system.setLinkProperties(link_num, mass, length)
+		else : raise RuntimeError('Simulation time not zero')
+		pass
+
+	def setJointLimits(self, joint_num:int, min_angle:float, max_angle:float) -> None :
+
+		if self.__t == 0 : self.__system.setJointLimits(joint_num, min_angle, max_angle)
+		else : raise RuntimeError('Simulation time not zero')
 		pass
 
 	# Plot

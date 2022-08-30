@@ -24,17 +24,24 @@ class ManipulatorController() :
 
 	def torqueControl(self, t:float, target_state:np.ndarray, F:callable) -> np.ndarray :
 
+		t_state = ElbowManipulator.ElbowManipulatorState()
+		t_state.setState(target_state)
+
 		tau  = self.state.getConfigTerms(self.system)
 		tau += self.state.getGravityTerms(self.system) 
-		tau += np.matmul(self.state.J(self.system), F(t, target_state))
+		tau += np.matmul(self.state.J(self.system), F(t, t_state))
 		
-		tau += np.matmul(self.state.getAccMatrix(self.system), (target_state[2:] - self.state.q_dot_vec()) / self.time_step)
+		tau += np.matmul(self.state.getAccMatrix(self.system), (t_state.q_dot_vec() - self.state.q_dot_vec()) / self.time_step)
 
 		return tau
 
 	# Inverse Kinematics
 
 	def q(self, x:np.ndarray, y:np.ndarray) -> np.ndarray :
+
+		if np.any(x**2 + y**2 > (self.system.l(1) + self.system.l(2))**2) :
+
+			raise ValueError('Desired position out of system bounds')
 
 		theta = np.arccos(
 			(x**2 + y**2 - self.system.l(1)**2 - self.system.l(2)**2) /
@@ -49,11 +56,14 @@ class ManipulatorController() :
 			(self.system.l(1) + self.system.l(2) * np.cos(theta))
 		)
 
-		return np.column_stack((
+		q_vec = np.column_stack((
 			phi + varphi,
 			phi + varphi - theta
 		))
 
+		self.system.withinSystemBounds(q_vec)
+
+		return q_vec
 
 class Trajectory() :
 
@@ -122,24 +132,24 @@ class Trajectory() :
 		
 		pass
 	
-	def getIndex(self, t) -> int :
+	def getIndex(self, t:float) -> int :
 
 		i = np.argmin(np.abs(self.__t - t))
-		i += 1 * (self.__t[i] < t)
+		i -= 1 * (self.__t[i] > t)
 
 		return i
 
-	def getTargetState(self, t) -> np.ndarray :
+	def getTargetState(self, t:float) -> np.ndarray :
 
 		return self.__target_states[self.getIndex(t)]
 
-	def getTargetPosition(self, t) -> np.ndarray :
+	def getTargetPosition(self, t:float) -> np.ndarray :
 
 		i = self.getIndex(t)
 
 		return self.__x[i], self.__y[i]
 
-	def n(self) :
+	def n(self) -> int :
 
 		return self.__t.shape[0]
 
@@ -148,7 +158,7 @@ if __name__ == '__main__' :
 	bot = ElbowManipulator.ElbowManipulator()
 	controller = ManipulatorController(1000)
 
-	t = np.linspace(0, 10, 100)
+	t = np.linspace(0, 10, 200)
 	x = 0.5 * np.cos(2 * t * np.pi)
 	y = 1 + 0.5 * np.sin(2 * t  * np.pi)
 
