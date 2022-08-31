@@ -29,7 +29,7 @@ class ManipulatorController() :
 
 		tau  = self.state.getConfigTerms(self.system)
 		tau += self.state.getGravityTerms(self.system) 
-		tau += np.matmul(self.state.J(self.system), F(t, t_state))
+		tau += np.matmul(self.state.J(self.system), F(t, t_state.E(self.system)))
 		
 		tau += np.matmul(self.state.getAccMatrix(self.system), (t_state.q_dot_vec() - self.state.q_dot_vec()) / self.time_step)
 

@@ -167,6 +167,18 @@ class ElbowManipulatorState(np.ndarray) :
 			0
 		])
 
+	# Forward Kinematics
+
+	def E(self, system:ElbowManipulatorConfig) -> np.ndarray :
+
+		return np.append(
+			np.array([
+				system.l(1) * np.cos(self.q(1)) + system.l(2) * np.cos(self.q(2)),
+				system.l(1) * np.sin(self.q(1)) + system.l(2) * np.sin(self.q(2))
+			]),
+			np.matmul(self.J(system), self.q_dot_vec())
+		)
+
 	# Dynamics
 
 	def q_ddot(self, system:ElbowManipulatorConfig, tau:np.ndarray, F:np.ndarray) -> np.ndarray :
@@ -198,7 +210,7 @@ class ElbowManipulator() :
 
 		return np.append(
 			state.q_dot_vec(),
-			state.q_ddot(self.__system, self.__tau, self.__F(t, state))
+			state.q_ddot(self.__system, self.__tau, self.__F(t, state.E(self.__system)))
 		)
 	
 	def advanceTime(self, time_step:float) -> None :

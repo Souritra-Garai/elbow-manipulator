@@ -18,7 +18,7 @@ if __name__ == '__main__' :
 	controller.system.setLinkProperties(2, 0.2, 0.4)
 
 	# Trajectory
-	sim_time = 2
+	sim_time = 20
 	t = np.linspace(0, sim_time, 10)
 	x = np.append(np.linspace(1.0, 0.5, t.shape[0] // 2), np.ones(t.shape[0] // 2) * 0.5)
 	y = np.append(np.linspace(0.0, 0.5, t.shape[0] // 2), np.ones(t.shape[0] // 2) * 0.5)
@@ -30,15 +30,11 @@ if __name__ == '__main__' :
 	tau1_array = list()
 	tau2_array = list()
 
-	def F(t:float, state:ElbowManipulator.ElbowManipulatorState) -> np.ndarray :
+	def F(t:float, state:np.ndarray) -> np.ndarray :
 
-		if all(np.isclose(state.q_vec(), trajectory.getTargetState(np.inf)[:2], atol=0.1)) :
-			
-			return np.array([30, 40])
+		return - 10 * (state[:2] - np.array([0.5, 0.5]))
 
-		else : return np.zeros(2)
-
-	bot.setF(F)
+	# bot.setF(F)
 
 	# Figure
 	fig = plt.figure()
@@ -46,6 +42,10 @@ if __name__ == '__main__' :
 
 	bot.setUpPlot(ax)
 	target_point, = ax.plot([], [], 'o', markersize=3, label='Target Position')
+
+	# ax.plot(0.5, 0.5, 'o')
+	# ax.set_xlim([-1, 1])
+	# ax.set_ylim([-0, 1])
 
 	tau_ax.set_xlim([0, sim_time])
 	tau_ax.set_ylim([-20, 20])
@@ -61,11 +61,13 @@ if __name__ == '__main__' :
 
 		global t_array, tau1_array, tau2_array
 
-		bot.setState(0, trajectory.getTargetState(0))
-		controller.state.setState(trajectory.getTargetState(0))
+		q = controller.q(0.4, 0.4)[0]
+
+		bot.setState(0, np.array([q[0], q[1], 0, 0]))
+		controller.state.setState(np.array([q[0], q[1], 0, 0]))
 
 		x, y = trajectory.getTargetPosition(0)
-		target_point.set_data(x, y)
+		target_point.set_data(0.5, 0.5)
 
 		t_array = list()
 		tau1_array = list()
@@ -81,7 +83,7 @@ if __name__ == '__main__' :
 		for t in np.arange(time - frame_interval, time, controller.time_step) :
 
 			controller.state.setState(bot.getState())
-			tau = controller.torqueControl(t, trajectory.getTargetState(t), F)
+			tau = controller.torqueControl(t, controller.state, F)
 
 			bot.setTau(tau)
 
@@ -89,7 +91,7 @@ if __name__ == '__main__' :
 	
 		x, y = trajectory.getTargetPosition(time)
 		
-		target_point.set_data(x, y)
+		target_point.set_data(0.5, 0.5)
 
 		t_array.append(time)
 		tau1_array.append(tau[0])
