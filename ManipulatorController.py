@@ -61,7 +61,10 @@ class ManipulatorController() :
 			phi + varphi - theta
 		))
 
-		self.system.withinSystemBounds(q_vec)
+		# if not self.system.withinSystemBounds(q_vec) :
+
+		# 	print(q_vec)
+		# 	raise ValueError('Desired position out of system bounds')
 
 		return q_vec
 
@@ -125,8 +128,8 @@ class Trajectory() :
 		q1_dot = (q1[1:] - q1[:-1]) / (t[1:] - t[:-1])
 		q2_dot = (q2[1:] - q2[:-1]) / (t[1:] - t[:-1])
 
-		q1_dot = np.append(q1_dot, 0)
-		q2_dot = np.append(q2_dot, 0)
+		q1_dot = np.append(q1_dot, q1_dot[-1])
+		q2_dot = np.append(q2_dot, q2_dot[-1])
 
 		self.__target_states = np.column_stack((q1, q2, q1_dot, q2_dot))
 		
