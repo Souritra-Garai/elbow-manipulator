@@ -247,7 +247,7 @@ class ElbowManipulator() :
 
 	def setF(self, F:callable) -> None :
 
-		if F(self.__t, self.__state).shape[-1] == 2 :
+		if F(self.__t, np.random.random(4)).shape[-1] == 2 :
 
 			self.__F = F
 

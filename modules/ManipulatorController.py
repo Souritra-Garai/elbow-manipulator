@@ -1,10 +1,5 @@
-from cmath import tau
-from operator import index
-from textwrap import indent
 import numpy as np
-import ElbowManipulator
-
-from scipy.interpolate import interp1d
+import modules.ElbowManipulator as ElbowManipulator
 
 class ManipulatorController() :
 
@@ -114,12 +109,12 @@ class Trajectory() :
 			q1 = np.append(q1, np.linspace(q[i-1, 0], q[i, 0], n))
 			q2 = np.append(q2, np.linspace(q[i-1, 1], q[i, 1], n))
 
-		t = np.append(t, np.inf)
-		x = np.append(x, x[-1])
-		y = np.append(y, y[-1])
+		# t = np.append(t, np.inf)
+		# x = np.append(x, x[-1])
+		# y = np.append(y, y[-1])
 		
-		q1 = np.append(q1, q1[-1])
-		q2 = np.append(q2, q2[-1])
+		# q1 = np.append(q1, q1[-1])
+		# q2 = np.append(q2, q2[-1])
 
 		self.__t = t
 		self.__x = x
