@@ -6,4 +6,4 @@ Simulation of 2R Elbow Manipulator Robot
 
 ## Simulation Hierarchy
 
-The underlying differential equations for the system is solved at very high frequency compared to controller frequency. This, in priciple, emulates the real world condition, where the torque-based robot controller runs at a finite frequency while the system continuosly evolves with time.
+The underlying differential equations for the system is solved at very high frequency compared to controller frequency. This, in principle, emulates the real world condition, where the torque-based robot controller runs at a finite frequency while the system continuously evolves with time.
