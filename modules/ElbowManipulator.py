@@ -1,7 +1,7 @@
 import numpy as np
 
 from scipy.integrate import solve_ivp
-from matplotlib.pyplot import Axes, Line2D
+from matplotlib.pyplot import Axes
 
 g = 9.8	# m2 / s
 
